@@ -27,13 +27,12 @@ HEADERS = {
 
 
 def fetch_api(url: str = API_URL, timeout: int = 15) -> Tuple[Dict[str, Any] | None, str | None]:
-
+    """请求 API 并返回 JSON（dict）或错误信息。"""
     try:
         r = requests.get(url, headers=HEADERS, timeout=timeout)
         r.raise_for_status()
         return r.json(), None
     except Exception as e:
-
         try:
             snippet = r.text[:800] if 'r' in locals() and hasattr(r, 'text') else ''
         except Exception:
@@ -42,7 +41,7 @@ def fetch_api(url: str = API_URL, timeout: int = 15) -> Tuple[Dict[str, Any] | N
 
 
 def extract_value(item: Dict[str, Any], candidates: List[List[str]]) -> Any:
-
+    """按候选路径尝试提取值，返回第一个找到的非空值。"""
     for path in candidates:
         cur = item
         ok = True
@@ -58,7 +57,7 @@ def extract_value(item: Dict[str, Any], candidates: List[List[str]]) -> Any:
 
 
 def parse_api_data(data: Dict[str, Any]) -> Tuple[int, List[Dict[str, Any]]]:
-
+    """解析 API JSON，返回剩余帖子数和 dyn_list 列表（每项为解析后字典）。"""
     if not isinstance(data, dict):
         return 0, []
     content = data.get('data', {}).get('content', {})
@@ -74,11 +73,9 @@ def parse_api_data(data: Dict[str, Any]) -> Tuple[int, List[Dict[str, Any]]]:
         title = extract_value(item, [['title'], ['card', 'title'], ['desc'], ['title_text']])
         author = extract_value(item, [['meta', 'author'], ['author', 'uname'], ['author', 'name'], ['author'], ['user_name']])
         time_text = extract_value(item, [['meta', 'time_text'], ['time_text'], ['publish_time'], ['ctime'], ['timestamp']])
-
         if isinstance(time_text, (int, float)) and time_text > 0:
             try:
                 if time_text > 1e12:
-
                     time_text = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time_text / 1000))
                 elif time_text > 1e9:
                     time_text = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time_text))
@@ -114,7 +111,6 @@ def parse_api_data(data: Dict[str, Any]) -> Tuple[int, List[Dict[str, Any]]]:
 class App:
     def __init__(self, root: tk.Tk):
         self.root = root
-
         try:
             if getattr(sys, 'frozen', False):
                 self.program_root = os.path.dirname(sys.executable)
@@ -239,6 +235,7 @@ class App:
             self.root.protocol('WM_DELETE_WINDOW', self.on_closing)
         except Exception:
             pass
+
         self.tree.bind('<Double-1>', self.on_double_click)
 
     def log(self, msg: str):
@@ -350,6 +347,64 @@ class App:
         win = tk.Toplevel(self.root)
         win.title('条目详情')
         win.geometry('800x520')
+        try:
+            frame = ttk.Frame(win)
+            frame.pack(fill='both', expand=True, padx=8, pady=8)
+
+            detail_txt = scrolledtext.ScrolledText(frame, wrap='none')
+            detail_txt.pack(fill='both', expand=True)
+
+            try:
+                raw = it.get('raw', {}) or it
+                pretty = json.dumps(raw, ensure_ascii=False, indent=2)
+            except Exception:
+                pretty = str(it)
+
+            detail_txt.insert('1.0', pretty)
+            detail_txt.configure(state='disabled')
+
+            btns = ttk.Frame(win)
+            btns.pack(fill='x', padx=8, pady=(0, 8))
+
+            def _copy_json():
+                try:
+                    self.root.clipboard_clear()
+                    self.root.clipboard_append(pretty)
+                    self.log('条目 JSON 已复制到剪贴板')
+                    try:
+                        messagebox.showinfo('已复制', '已将 JSON 复制到剪贴板')
+                    except Exception:
+                        pass
+                except Exception as e:
+                    try:
+                        messagebox.showerror('复制失败', str(e))
+                    except Exception:
+                        pass
+
+            def _open_link():
+                url = it.get('jump_uri') or it.get('raw', {}).get('jump_uri') or it.get('raw', {}).get('uri')
+                if not url:
+                    try:
+                        messagebox.showinfo('提示', '未找到跳转链接')
+                    except Exception:
+                        pass
+                    return
+                try:
+                    webbrowser.open(url)
+                except Exception as e:
+                    try:
+                        messagebox.showerror('错误', f'打开失败: {e}')
+                    except Exception:
+                        pass
+
+            ttk.Button(btns, text='复制 JSON', command=_copy_json).pack(side='left')
+            ttk.Button(btns, text='打开跳转链接', command=_open_link).pack(side='left', padx=8)
+            ttk.Button(btns, text='关闭', command=win.destroy).pack(side='right')
+        except Exception:
+            try:
+                messagebox.showinfo('条目原始数据', str(it.get('raw', {}) or it))
+            except Exception:
+                pass
 
     def open_selected_link(self):
         it = self.get_selected_item()
@@ -556,6 +611,7 @@ class App:
                 self.root.quit()
             except Exception:
                 pass
+
 
 def main():
     root = tk.Tk()
