@@ -125,7 +125,7 @@ class App:
                 self.program_root = os.path.dirname(os.path.abspath(__file__))
         except Exception:
             self.program_root = os.getcwd()
-        root.title('BackRoom小站工作台')
+        root.title('这里填小站名称，自定义')
         root.geometry('2500x64')
         style = ttk.Style(root)
         try:
