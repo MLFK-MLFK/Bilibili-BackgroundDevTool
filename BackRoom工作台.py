@@ -1,3 +1,7 @@
+
+"""
+依赖：requests, tkinter（标准库）
+"""
 from __future__ import annotations
 import threading
 import time
@@ -10,10 +14,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 from typing import Any, Dict, List, Tuple
 
+# === 配置 ===
 API_URL = (
-    "https://api.bilibili.com/x/tribee/v1/dyn/all?"
-    "tribee_id=58&category_id=504&page_size=20&page_num=1&web_location=333.40165&"
-    "x-bili-device-req-json=%7B%22platform%22:%22web%22,%22device%22:%22pc%22,%22spmid%22:%22333.40165%22%7D"
+   这里填你的小站入站申请帖的API
 )
 
 HEADERS = {
@@ -33,6 +36,7 @@ def fetch_api(url: str = API_URL, timeout: int = 15) -> Tuple[Dict[str, Any] | N
         r.raise_for_status()
         return r.json(), None
     except Exception as e:
+        # 尝试返回片段用于诊断
         try:
             snippet = r.text[:800] if 'r' in locals() and hasattr(r, 'text') else ''
         except Exception:
@@ -73,9 +77,11 @@ def parse_api_data(data: Dict[str, Any]) -> Tuple[int, List[Dict[str, Any]]]:
         title = extract_value(item, [['title'], ['card', 'title'], ['desc'], ['title_text']])
         author = extract_value(item, [['meta', 'author'], ['author', 'uname'], ['author', 'name'], ['author'], ['user_name']])
         time_text = extract_value(item, [['meta', 'time_text'], ['time_text'], ['publish_time'], ['ctime'], ['timestamp']])
+        # 数字时间戳转换
         if isinstance(time_text, (int, float)) and time_text > 0:
             try:
                 if time_text > 1e12:
+                    # 毫秒 -> 秒
                     time_text = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time_text / 1000))
                 elif time_text > 1e9:
                     time_text = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time_text))
@@ -111,6 +117,7 @@ def parse_api_data(data: Dict[str, Any]) -> Tuple[int, List[Dict[str, Any]]]:
 class App:
     def __init__(self, root: tk.Tk):
         self.root = root
+        # 程序根目录：打包后取可执行文件目录，脚本运行则取脚本所在目录
         try:
             if getattr(sys, 'frozen', False):
                 self.program_root = os.path.dirname(sys.executable)
@@ -140,6 +147,7 @@ class App:
 
         ttk.Button(frm, text='立即刷新', command=self.start_fetch_thread).pack(side='left', padx=8)
 
+        # 页码范围设置：开始页 - 结束页
         ttk.Label(frm, text='多页搜索：开始页:').pack(side='left', padx=(8, 0))
         self.start_page_var = tk.StringVar(value='1')
         ttk.Entry(frm, width=4, textvariable=self.start_page_var).pack(side='left', padx=(2, 6))
@@ -147,10 +155,14 @@ class App:
         self.end_page_var = tk.StringVar(value='5')
         ttk.Entry(frm, width=4, textvariable=self.end_page_var).pack(side='left', padx=(2, 6))
 
+        ttk.Button(frm, text='↻', width=2, command=self.start_fetch_thread).pack(side='left', padx=(0, 8))
+
         self.remain_label = ttk.Label(frm, text='剩余帖子数: -')
         self.remain_label.pack(side='right')
 
+        # Treeview
         cols = ('index', 'title', 'author', 'time', 'replies', 'jump')
+        # 中心内容区：用于放置主列表(Treeview)与右侧自定义文本区
         content = ttk.Frame(root)
         content.pack(fill='both', expand=True, padx=8, pady=8)
 
@@ -173,6 +185,7 @@ class App:
         self.tree.pack(fill='both', expand=True, side='left')
         vsb.pack(fill='y', side='right')
 
+        # 右侧可编辑持久化文本区（最小化改动，保持原有布局）
         try:
             right_frame = ttk.Frame(content, width=360)
             right_frame.pack(fill='y', side='right', padx=(8, 0), pady=0)
@@ -184,6 +197,7 @@ class App:
             ttk.Button(btns, text='保存', command=lambda: self.save_custom_text(True)).pack(side='left', padx=(0, 6))
             ttk.Button(btns, text='一键复制', command=lambda: self.copy_custom_text()).pack(side='left')
 
+            # 持久化文件路径（程序所在目录下 custom_text.txt）
             self.custom_text_path = os.path.join(self.program_root, 'custom_text.txt')
             try:
                 if os.path.exists(self.custom_text_path):
@@ -193,15 +207,19 @@ class App:
             except Exception:
                 pass
 
+            # 绑定修改事件：按键防抖保存 & 失去焦点立即保存
             try:
                 self.custom_text.bind('<KeyRelease>', lambda e: self.schedule_save_custom_text())
                 self.custom_text.bind('<FocusOut>', lambda e: self.save_custom_text(False))
             except Exception:
                 pass
         except Exception:
+            # 若右侧面板创建失败，不影响主功能
+            # 始终将持久化文件保存在程序所在目录
             self.custom_text = None
             self.custom_text_path = os.path.join(self.program_root, 'custom_text.txt')
 
+        # 行和高亮样式
         try:
             self.tree.tag_configure('zero', foreground='red')
             self.tree.tag_configure('even', background='#fbfbfb')
@@ -209,33 +227,43 @@ class App:
         except Exception:
             pass
 
+        # 下方日志/详情框
         bottom = ttk.Frame(root)
         bottom.pack(fill='x', padx=8, pady=(0, 8))
         self.detail_btn = ttk.Button(bottom, text='查看详情', command=self.show_selected_detail)
         self.detail_btn.pack(side='left')
         self.open_btn = ttk.Button(bottom, text='打开跳转链接', command=self.open_selected_link)
         self.open_btn.pack(side='left', padx=8)
+        self.open_btn = ttk.Button(bottom, text='关于工具', command=self.open_github)
+        self.open_btn.pack(side='left', padx=8)
 
         self.logbox = scrolledtext.ScrolledText(root, height=8, state='disabled')
         self.logbox.pack(fill='x', padx=8, pady=(0, 8))
 
         self.after_id = None
+        # 自定义文本保存防抖定时器 id
         self._save_after_id = None
         self.running = False
         self.current_items: List[Dict[str, Any]] = []
+        # 自动调整窗口尺寸的状态：首次允许自动收缩/扩展，之后只允许放大
         self._auto_sized_done = False
         self._min_w = None
         self._min_h = None
+        # 记录是否已在首次更新时执行过自动调整（防止后续刷新调整窗口）
         self._initial_adjust_done = False
 
+        # 启动时静默获取一次
         self.start_fetch_thread()
+        # 启动自动定时刷新（延迟调用，确保界面初始化完成）
         self.root.after(800, self.start_timer)
 
+        # 关闭时保存自定义文本
         try:
             self.root.protocol('WM_DELETE_WINDOW', self.on_closing)
         except Exception:
             pass
 
+        # 双击改为直接打开跳转链接
         self.tree.bind('<Double-1>', self.on_double_click)
 
     def log(self, msg: str):
@@ -246,6 +274,7 @@ class App:
         self.logbox.configure(state='disabled')
 
     def start_fetch_thread(self, start_page: int | None = None, end_page: int | None = None):
+        # 读取页码（在主线程读取 Tk 变量），并启动后台线程执行请求
         try:
             sp = int(start_page) if start_page is not None else int(self.start_page_var.get())
         except Exception:
@@ -270,6 +299,7 @@ class App:
 
         for page in range(start_page, end_page + 1):
             try:
+                # 将 API_URL 中的 page_num= 替换为当前页
                 page_url = API_URL.replace('page_num=1', f'page_num={page}')
                 data, err = fetch_api(page_url)
                 if err:
@@ -281,6 +311,7 @@ class App:
 
                 for it in items:
                     raw = it.get('raw', {}) or {}
+                    # 尝试用 dyn_id 或 jump_uri 做去重键
                     idkey = raw.get('dyn_id') or it.get('jump_uri') or raw.get('id') or str(raw)
                     if idkey in seen_ids:
                         continue
@@ -290,6 +321,7 @@ class App:
             except Exception as e:
                 self.root.after(0, lambda p=page, e=e: self.log(f'第 {p} 页处理失败: {e}'))
 
+        # 重新分配索引
         for i, it in enumerate(all_items):
             it['index'] = i
 
@@ -322,6 +354,7 @@ class App:
                 pass
             self.tree.insert('', 'end', values=(it.get('index'), title_display, it.get('author'), it.get('time_text'), it.get('replies'), it.get('jump_uri')), tags=tuple(tags))
         self.remain_label.config(text=f'剩余帖子数: {remaining}')
+        # 只在首次更新时尝试自动调整窗口尺寸，之后刷新不改变窗口大小
         if not getattr(self, '_initial_adjust_done', False):
             self.adjust_window_size_to_content(items)
             self._initial_adjust_done = True
@@ -347,6 +380,7 @@ class App:
         win = tk.Toplevel(self.root)
         win.title('条目详情')
         win.geometry('800x520')
+        # 详情文本区
         try:
             frame = ttk.Frame(win)
             frame.pack(fill='both', expand=True, padx=8, pady=8)
@@ -361,8 +395,10 @@ class App:
                 pretty = str(it)
 
             detail_txt.insert('1.0', pretty)
+            # 禁止编辑但允许选择复制
             detail_txt.configure(state='disabled')
 
+            # 按钮区：复制 JSON / 打开链接 / 关闭
             btns = ttk.Frame(win)
             btns.pack(fill='x', padx=8, pady=(0, 8))
 
@@ -401,10 +437,17 @@ class App:
             ttk.Button(btns, text='打开跳转链接', command=_open_link).pack(side='left', padx=8)
             ttk.Button(btns, text='关闭', command=win.destroy).pack(side='right')
         except Exception:
+            # 若显示失败，弹出原始 JSON 作为兜底
             try:
                 messagebox.showinfo('条目原始数据', str(it.get('raw', {}) or it))
             except Exception:
                 pass
+
+    def open_github(self):
+        try:
+            webbrowser.open("https://github.com/MLFK-MLFK/Bilibili-BackgroundDevTool")
+        except Exception as e:
+            messagebox.showerror('错误', f'打开失败: {e}') 
 
     def open_selected_link(self):
         it = self.get_selected_item()
@@ -421,6 +464,7 @@ class App:
             messagebox.showerror('错误', f'打开失败: {e}')
 
     def on_double_click(self, event):
+        # 直接打开被双击行的跳转链接
         rowid = self.tree.identify_row(event.y)
         if not rowid:
             return
@@ -444,6 +488,7 @@ class App:
                 return
 
     def adjust_window_size_to_content(self, items: List[Dict[str, Any]]):
+        # 尝试根据内容行数和列宽调整窗口大小，以尽量展示全部内容
         try:
             self.root.update_idletasks()
             cols = ('index', 'title', 'author', 'time', 'replies', 'jump')
@@ -474,7 +519,9 @@ class App:
             width = min(width, screen_w - 80)
             total_height = min(total_height, screen_h - 80)
 
+            # 首次自动调整：允许收缩或放大以完全显示内容；之后只允许放大，避免刷新时窗口缩小
             if not getattr(self, '_auto_sized_done', False):
+                # 记录最小尺寸为首次计算值
                 self._min_w = int(width)
                 self._min_h = int(total_height)
                 try:
@@ -490,9 +537,11 @@ class App:
                     cur_w, cur_h = 0, 0
                 target_w = max(self._min_w or 0, int(width), cur_w)
                 target_h = max(self._min_h or 0, int(total_height), cur_h)
+                # 若需要放大则调整
                 if target_w > cur_w or target_h > cur_h:
                     try:
                         self.root.geometry(f"{int(target_w)}x{int(target_h)}")
+                        # 更新记录的最小尺寸为新的较大值，避免后续缩小
                         self._min_w = max(self._min_w or 0, target_w)
                         self._min_h = max(self._min_h or 0, target_h)
                     except Exception:
@@ -541,6 +590,7 @@ class App:
         self.stop_btn.config(state='disabled')
         self.log('已停止定时')
 
+    # -------- 自定义文本持久化与复制功能 --------
     def schedule_save_custom_text(self):
         try:
             if getattr(self, '_save_after_id', None):
@@ -551,6 +601,7 @@ class App:
         except Exception:
             pass
         try:
+            # 自动保存不弹窗，手动保存会弹窗
             self._save_after_id = self.root.after(1000, lambda: self.save_custom_text(False))
         except Exception:
             self._save_after_id = None
@@ -560,6 +611,7 @@ class App:
             return
         try:
             txt = self.custom_text.get('1.0', 'end-1c')
+            # 确保目录存在（通常为脚本目录）
             try:
                 os.makedirs(os.path.dirname(self.custom_text_path), exist_ok=True)
             except Exception:
@@ -594,6 +646,7 @@ class App:
                 self.root.clipboard_append(txt)
             except Exception:
                 pass
+            # 同步保存
             self.save_custom_text()
             self.log('自定义文本已复制到剪贴板')
         except Exception as e:
